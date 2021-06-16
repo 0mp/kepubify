@@ -1,0 +1,157 @@
+name: kepubify
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    name: test - Go ${{matrix.go}} - ${{matrix.platform}}${{fromJSON(format('["", " - {0}"]', matrix.tags))[matrix.tags != '']}}
+    runs-on: ${{matrix.platform}}
+  
+    strategy:
+      matrix:
+        go:
+          - 1.16
+          - 1.17.0-beta1
+        platform:
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
+        tags:
+          - ""
+        include:
+          - {go: 1.16, platform: ubuntu-latest,  tags: zip117}
+          - {go: 1.16, platform: windows-latest, tags: zip117}
+          - {go: 1.16, platform: macos-latest,   tags: zip117}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+    
+      - name: Go
+        uses: actions/setup-go@v2
+        with:
+          stable: '!contains(${{ matrix.go }}, "beta") && !contains(${{ matrix.go }}, "rc")'
+          go-version: ${{matrix.go}}
+    
+      - name: Build
+        run: go build${{fromJSON(format('["", " -tags {0}"]', matrix.tags))[matrix.tags != '']}} -v ./...
+
+      - name: Test (kepub)
+        run: go test${{fromJSON(format('["", " -tags {0}"]', matrix.tags))[matrix.tags != '']}} -v -cover ./kepub
+
+      - name: Test (kepubify)
+        run: go test${{fromJSON(format('["", " -tags {0}"]', matrix.tags))[matrix.tags != '']}} -v -cover ./cmd/kepubify
+
+      - name: Benchmark (kepub)
+        run: go test${{fromJSON(format('["", " -tags {0}"]', matrix.tags))[matrix.tags != '']}} -bench=. -benchmem ./kepub
+
+      - name: Run (kepubify)
+        run: go run${{fromJSON(format('["", " -tags {0}"]', matrix.tags))[matrix.tags != '']}} ./cmd/kepubify --help
+
+      - name: Run (covergen)
+        run: go run${{fromJSON(format('["", " -tags {0}"]', matrix.tags))[matrix.tags != '']}} ./cmd/covergen --help
+
+      - name: Run (seriesmeta)
+        run: go run${{fromJSON(format('["", " -tags {0}"]', matrix.tags))[matrix.tags != '']}} ./cmd/seriesmeta --help
+
+  build-release-simple:
+    name: build - ${{matrix.cmd}}${{matrix.suffix}}
+    runs-on: ubuntu-latest
+
+    needs:
+      - test
+
+    strategy:
+      matrix:
+        dummy: [""]
+        include:
+          - {cmd: kepubify, suffix: -linux-64bit,             go: 1.16, tags: zip117,    cgo: 0, goos: linux,   goarch: amd64, goarm: ""}
+          - {cmd: kepubify, suffix: -linux-32bit,             go: 1.16, tags: zip117,    cgo: 0, goos: linux,   goarch: 386,   goarm: ""}
+          - {cmd: kepubify, suffix: -linux-arm,               go: 1.16, tags: zip117,    cgo: 0, goos: linux,   goarch: arm,   goarm: 7 }
+          - {cmd: kepubify, suffix: -linux-arm64,             go: 1.16, tags: zip117,    cgo: 0, goos: linux,   goarch: arm64, goarm: ""}
+          - {cmd: kepubify, suffix: -darwin-64bit,            go: 1.16, tags: zip117,    cgo: 0, goos: darwin,  goarch: amd64, goarm: ""}
+          - {cmd: kepubify, suffix: -darwin-arm,              go: 1.16, tags: zip117,    cgo: 0, goos: darwin,  goarch: arm64, goarm: ""}
+          - {cmd: kepubify, suffix: -windows-64bit.exe,       go: 1.16, tags: zip117,    cgo: 0, goos: windows, goarch: amd64, goarm: ""}
+          - {cmd: kepubify, suffix: -windows-32bit.exe,       go: 1.16, tags: zip117,    cgo: 0, goos: windows, goarch: 386,   goarm: ""}
+          - {cmd: kepubify, suffix: -windows-arm.exe,         go: 1.17.0-beta1, tags: "",cgo: 0, goos: windows, goarch: arm64, goarm: ""}
+
+          - {cmd: covergen, suffix: -linux-64bit,             go: 1.16, tags: "",        cgo: 0, goos: linux,   goarch: amd64, goarm: ""}
+          - {cmd: covergen, suffix: -linux-32bit,             go: 1.16, tags: "",        cgo: 0, goos: linux,   goarch: 386,   goarm: ""}
+          - {cmd: covergen, suffix: -linux-arm,               go: 1.16, tags: "",        cgo: 0, goos: linux,   goarch: arm,   goarm: 7 }
+          - {cmd: covergen, suffix: -linux-arm64,             go: 1.16, tags: "",        cgo: 0, goos: linux,   goarch: arm64, goarm: ""}
+          - {cmd: covergen, suffix: -darwin-64bit,            go: 1.16, tags: "",        cgo: 0, goos: darwin,  goarch: amd64, goarm: ""}
+          - {cmd: covergen, suffix: -darwin-arm,              go: 1.16, tags: "",        cgo: 0, goos: darwin,  goarch: arm64, goarm: ""}
+          - {cmd: covergen, suffix: -windows-64bit.exe,       go: 1.16, tags: "",        cgo: 0, goos: windows, goarch: amd64, goarm: ""}
+          - {cmd: covergen, suffix: -windows-32bit.exe,       go: 1.16, tags: "",        cgo: 0, goos: windows, goarch: 386,   goarm: ""}
+          - {cmd: covergen, suffix: -windows-arm.exe,         go: 1.17.0-beta1, tags: "",cgo: 0, goos: windows, goarch: arm64, goarm: ""}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+    
+      - name: Go
+        uses: actions/setup-go@v2
+        with:
+          stable: '!contains(${{ matrix.go }}, "beta") && !contains(${{ matrix.go }}, "rc")'
+          go-version: ${{matrix.go}}
+
+      - name: Build
+        env:
+          CGO_ENABLED: ${{matrix.cgo}}
+          GOOS: ${{matrix.goos}}
+          GOARCH: ${{matrix.goarch}}
+          GOARM: ${{matrix.goarm}}
+        run: go build${{fromJSON(format('["", " -tags {0}"]', matrix.tags))[matrix.tags != '']}} -v -ldflags '-s -w' -trimpath -o ${{matrix.cmd}}${{matrix.suffix}} ./cmd/${{matrix.cmd}}
+
+      - name: Upload
+        uses: actions/upload-artifact@v2
+        with:
+          name: release_${{matrix.cmd}}${{matrix.suffix}}
+          path: ${{matrix.cmd}}${{matrix.suffix}}
+
+  build-release-elastic:
+    name: build - ${{matrix.cmd}}${{matrix.suffix}}
+    runs-on: ubuntu-latest
+    container: docker.elastic.co/beats-dev/golang-crossbuild:${{matrix.go}}-${{matrix.img}}
+
+    needs:
+      - test
+
+    strategy:
+      matrix:
+        dummy: [""]
+        include:
+          - {cmd: seriesmeta, suffix: -linux-64bit,           go: 1.16.4, tags: "",    cgo: 1, img: main,   os: linux/amd64}
+          - {cmd: seriesmeta, suffix: -linux-arm,             go: 1.16.4, tags: "",    cgo: 1, img: arm,    os: linux/armv7}
+          - {cmd: seriesmeta, suffix: -linux-arm64,           go: 1.16.4, tags: "",    cgo: 1, img: arm,    os: linux/arm64}
+          - {cmd: seriesmeta, suffix: -darwin-64bit,          go: 1.16.4, tags: "",    cgo: 1, img: darwin, os: darwin/amd64}
+          - {cmd: seriesmeta, suffix: -windows-64bit.exe,     go: 1.16.4, tags: "",    cgo: 1, img: main,   os: windows/amd64}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Build
+        run: /crossbuild --platforms "${{matrix.os}}" --build-cmd "CGO_ENABLED=${{matrix.cgo}} go build${{fromJSON(format('["", " -tags {0}"]', matrix.tags))[matrix.tags != '']}} -v -ldflags '-s -w' -trimpath -o ${{matrix.cmd}}${{matrix.suffix}} ./cmd/${{matrix.cmd}}"
+
+      - name: Upload
+        uses: actions/upload-artifact@v2
+        with:
+          name: Release (${{matrix.cmd}}${{matrix.suffix}})
+          path: ${{matrix.cmd}}${{matrix.suffix}}
+
+  release:
+    name: release - ${{matrix.platform}}
+    runs-on: ubuntu-latest
+
+    needs:
+      - build-release-simple
+      - build-release-elastic
+
+    steps:
+      - name: Download
+        uses: actions/download-artifact@v2
+
+      - name: Sort
+        run: mkdir build && mv Release*/* build && ls -lah build && file build/*
+
