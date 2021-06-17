@@ -4,35 +4,29 @@ on: [push, pull_request]
 
 jobs:
   test:
-    name: test - Go ${{matrix.go}} - ${{matrix.platform}}${{fromJSON(format('["", " - {0}"]', matrix.tags))[matrix.tags != '']}}
-    runs-on: ${{matrix.platform}}
-  
+    name: test - Go ${{matrix.go}}${{fromJSON(format('["", " - {0}"]', matrix.tags))[matrix.tags != '']}}
+    runs-on: ubuntu-latest
+
+    container:
+      image: golang:${{matrix.go}}-alpine
+
     strategy:
       matrix:
         go:
           - 1.16
-          - 1.17.0-beta1
-        platform:
-          - ubuntu-latest
-          - windows-latest
-          - macos-latest
+          - 1.17-rc
         tags:
           - ""
         include:
-          - {go: 1.16, platform: ubuntu-latest,  tags: zip117}
-          - {go: 1.16, platform: windows-latest, tags: zip117}
-          - {go: 1.16, platform: macos-latest,   tags: zip117}
+          - {go: 1.16, tags: zip117}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-    
-      - name: Go
-        uses: actions/setup-go@v2
-        with:
-          stable: '!contains(${{ matrix.go }}, "beta") && !contains(${{ matrix.go }}, "rc")'
-          go-version: ${{matrix.go}}
-    
+
+      - name: Tools
+        run: apk update && apk add --no-cache wine freetype libpng gcc libc-dev
+
       - name: Build
         run: go build${{fromJSON(format('["", " -tags {0}"]', matrix.tags))[matrix.tags != '']}} -v ./...
 
@@ -41,6 +35,18 @@ jobs:
 
       - name: Test (kepubify)
         run: go test${{fromJSON(format('["", " -tags {0}"]', matrix.tags))[matrix.tags != '']}} -v -cover ./cmd/kepubify
+
+      - name: Test - Wine (kepub)
+        env:
+          WINEPREFIX: /tmp/wine
+          GOOS: windows
+        run: go test${{fromJSON(format('["", " -tags {0}"]', matrix.tags))[matrix.tags != '']}} -v -cover -exec wine64 ./kepub
+
+      - name: Test - Wine (kepubify)
+        env:
+          WINEPREFIX: /tmp/wine
+          GOOS: windows
+        run: go test${{fromJSON(format('["", " -tags {0}"]', matrix.tags))[matrix.tags != '']}} -v -cover -exec wine64 ./cmd/kepubify
 
       - name: Benchmark (kepub)
         run: go test${{fromJSON(format('["", " -tags {0}"]', matrix.tags))[matrix.tags != '']}} -bench=. -benchmem ./kepub
@@ -54,9 +60,10 @@ jobs:
       - name: Run (seriesmeta)
         run: go run${{fromJSON(format('["", " -tags {0}"]', matrix.tags))[matrix.tags != '']}} ./cmd/seriesmeta --help
 
-  build-release-simple:
+  build-release:
     name: build - ${{matrix.cmd}}${{matrix.suffix}}
     runs-on: ubuntu-latest
+    container: golang:${{matrix.go}}-alpine
 
     needs:
       - test
@@ -73,7 +80,7 @@ jobs:
           - {cmd: kepubify, suffix: -darwin-arm,              go: 1.16, tags: zip117,    cgo: 0, goos: darwin,  goarch: arm64, goarm: ""}
           - {cmd: kepubify, suffix: -windows-64bit.exe,       go: 1.16, tags: zip117,    cgo: 0, goos: windows, goarch: amd64, goarm: ""}
           - {cmd: kepubify, suffix: -windows-32bit.exe,       go: 1.16, tags: zip117,    cgo: 0, goos: windows, goarch: 386,   goarm: ""}
-          - {cmd: kepubify, suffix: -windows-arm.exe,         go: 1.17.0-beta1, tags: "",cgo: 0, goos: windows, goarch: arm64, goarm: ""}
+          - {cmd: kepubify, suffix: -windows-arm.exe,         go: 1.17-rc, tags: "",     cgo: 0, goos: windows, goarch: arm64, goarm: ""}
 
           - {cmd: covergen, suffix: -linux-64bit,             go: 1.16, tags: "",        cgo: 0, goos: linux,   goarch: amd64, goarm: ""}
           - {cmd: covergen, suffix: -linux-32bit,             go: 1.16, tags: "",        cgo: 0, goos: linux,   goarch: 386,   goarm: ""}
@@ -83,17 +90,11 @@ jobs:
           - {cmd: covergen, suffix: -darwin-arm,              go: 1.16, tags: "",        cgo: 0, goos: darwin,  goarch: arm64, goarm: ""}
           - {cmd: covergen, suffix: -windows-64bit.exe,       go: 1.16, tags: "",        cgo: 0, goos: windows, goarch: amd64, goarm: ""}
           - {cmd: covergen, suffix: -windows-32bit.exe,       go: 1.16, tags: "",        cgo: 0, goos: windows, goarch: 386,   goarm: ""}
-          - {cmd: covergen, suffix: -windows-arm.exe,         go: 1.17.0-beta1, tags: "",cgo: 0, goos: windows, goarch: arm64, goarm: ""}
+          - {cmd: covergen, suffix: -windows-arm.exe,         go: 1.17-rc, tags: "",     cgo: 0, goos: windows, goarch: arm64, goarm: ""}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v2
-    
-      - name: Go
-        uses: actions/setup-go@v2
-        with:
-          stable: '!contains(${{ matrix.go }}, "beta") && !contains(${{ matrix.go }}, "rc")'
-          go-version: ${{matrix.go}}
 
       - name: Build
         env:
@@ -145,7 +146,7 @@ jobs:
     runs-on: ubuntu-latest
 
     needs:
-      - build-release-simple
+      - build-release
       - build-release-elastic
 
     steps:
